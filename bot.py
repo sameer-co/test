@@ -22,35 +22,30 @@ stats = {
 active_trade = None  
 bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
-# ==================== DUAL TIMEFRAME ENGINE ====================
+# ==================== DATA ENGINE ====================
 
 async def fetch_indicators():
-    """Fetches 1m and 5m data to calculate the Noise Filter"""
+    """Fetches 1m data and calculates RSI signals"""
     try:
-        # 1. Fetch 1m Data
         url = "https://api.binance.com/api/v3/klines"
+        # Only fetching 1m data now
         r1m = requests.get(url, params={'symbol': SYMBOL, 'interval': '1m', 'limit': 50}).json()
         df1 = pd.DataFrame(r1m, columns=['ts', 'o', 'h', 'l', 'c', 'v', 'ts_e', 'q', 'n', 'tb', 'tq', 'i'])
         df1[['close', 'low']] = df1[['c', 'l']].astype(float)
         
-        # 2. Fetch 5m Data for 9-EMA Filter
-        r5m = requests.get(url, params={'symbol': SYMBOL, 'interval': '5m', 'limit': 50}).json()
-        df5 = pd.DataFrame(r5m, columns=['ts', 'o', 'h', 'l', 'c', 'v', 'ts_e', 'q', 'n', 'tb', 'tq', 'i'])
-        df5['close'] = df5['c'].astype(float)
-        
         # Calculations
         rsi = ta.rsi(df1['close'], length=RSI_PERIOD)
         rsi_ema = ta.ema(rsi, length=EMA_RSI_PERIOD)
-        ema9_5m = ta.ema(df5['close'], length=9).iloc[-1]
         
         return {
             "rsi": rsi.iloc[-1], "rsi_ema": rsi_ema.iloc[-1],
             "prsi": rsi.iloc[-2], "pema": rsi_ema.iloc[-2],
             "prev_low": df1['low'].iloc[-2],
-            "ema9_5m": ema9_5m,
             "curr_price": df1['close'].iloc[-1]
         }
-    except: return None
+    except Exception as e:
+        print(f"Error fetching data: {e}")
+        return None
 
 # ==================== TRADE & STATS ENGINE ====================
 
@@ -70,8 +65,12 @@ async def monitor_trade(price):
     elif rr >= 2.2 and not active_trade.get('st2'): new_sl, active_trade['st2'] = active_trade['entry'] + (risk * 0.8), True
     elif rr >= 1.5 and not active_trade.get('st1'): new_sl, active_trade['st1'] = active_trade['entry'] + (risk * 0.5), True
 
-    if new_sl: active_trade['sl'] = new_sl
-    if price <= active_trade['sl']: await close_trade(price, "🛡️ SL/TRAIL HIT")
+    if new_sl: 
+        active_trade['sl'] = new_sl
+        # Optional: Add notification for trail update here
+        
+    if price <= active_trade['sl']: 
+        await close_trade(price, "🛡️ SL/TRAIL HIT")
 
 async def close_trade(exit_price, reason):
     global active_trade, stats
@@ -98,19 +97,27 @@ async def close_trade(exit_price, reason):
 
 async def main():
     global active_trade
+    print("Bot started. Monitoring 1m data...")
     uri = f"wss://stream.binance.com:9443/ws/{SYMBOL.lower()}@kline_1m"
     async with websockets.connect(uri) as ws:
         while True:
             data = json.loads(await ws.recv())
             price = float(data['k']['c'])
             if active_trade: await monitor_trade(price)
-            if data['k']['x']:
+            
+            if data['k']['x']: # Candle Close
                 ind = await fetch_indicators()
                 if ind and not active_trade:
-                    # Logic: Cross + RSI Filter + 5m 9EMA Noise Filter
+                    # Logic: Cross + RSI Filter (EMA Filter Removed)
                     if ind['prsi'] <= ind['pema'] and ind['rsi'] > ind['rsi_ema'] \
-                       and ind['rsi'] < RSI_MAX_ENTRY and ind['curr_price'] > ind['ema9_5m']:
-                        active_trade = {'entry': price, 'initial_sl': ind['prev_low'], 'sl': ind['prev_low'], 'risk_usd': stats['balance']*0.02}
-                        await bot.send_message(CHAT_ID, f"🚀 *LONG @ {price}*\nFilter: 5m EMA Support ✅")
+                       and ind['rsi'] < RSI_MAX_ENTRY:
+                        
+                        active_trade = {
+                            'entry': price, 
+                            'initial_sl': ind['prev_low'], 
+                            'sl': ind['prev_low'], 
+                            'risk_usd': stats['balance'] * 0.02
+                        }
+                        await bot.send_message(CHAT_ID, f"🚀 *LONG @ {price}*\nRSI: `{ind['rsi']:.1f}`")
 
 asyncio.run(main())
