@@ -28,16 +28,16 @@ SYMBOL = 'SOLUSDT'
 RSI_PERIOD = 20    # Updated per request
 WMA_PERIOD = 13    # Updated per request
 
-TELEGRAM_TOKEN = '8349229275:AAGNWV2A0_Pf9LhlwZCczeBoMcUaJL2shFg'
+TELEGRAM_TOKEN = '8392707199:AAHjWHGLoZ3Udm4rS5JlgSaPLez1qZbHMOo'
 CHAT_ID = '1950462171'
 
 stats = {
-    "balance": 59.91, 
+    "balance": 100, 
     "risk_percent": 0.02,
-    "total_trades": 93,
-    "wins_final_target": 9,   
-    "wins_trailed": 21,        
-    "losses": 63                
+    "total_trades": 00,
+    "wins_final_target": 0,   
+    "wins_trailed": 0,        
+    "losses": 00                
 }
 
 active_trade = None  
